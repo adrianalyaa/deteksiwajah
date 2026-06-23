@@ -134,6 +134,23 @@ section[data-testid="stSidebar"] h3 {
     padding: 22px;
 }
 
+/* Progress bar bertema pixel (pengganti st.progress agar bisa
+   digabung dalam satu blok HTML murni bersama kotak hasil analisis) */
+.pf-progress-wrap {
+    width: 100%;
+    background: rgba(255,191,229,0.15);
+    border: 2px solid var(--pink-dark);
+    height: 20px;
+    margin: 10px 0;
+}
+.pf-progress-fill {
+    height: 100%;
+    background: repeating-linear-gradient(90deg, var(--pink-deeper) 0, var(--pink-deeper) 10px, var(--pink-dark) 10px, var(--pink-dark) 14px);
+    transition: width 0.6s ease;
+}
+
+
+
 .pf-label {
     font-family: 'Press Start 2P', monospace;
     font-size: 9px;
