@@ -226,16 +226,14 @@ def power_iteration(A: np.ndarray, iters: int = 15, rng: np.random.Generator | N
     return u, sigma, v
 
 
-def svd_compress(gray_matrix: np.ndarray, k: int, iters: int = 15, seed: int | None = None):
+def _svd_reconstruct_single_channel(matrix: np.ndarray, k: int, iters: int, rng: np.random.Generator) -> np.ndarray:
     """
-    Port 1:1 dari runSVD() di JS: hitung k singular value/vector terbesar
-    via power iteration + deflation, lalu rekonstruksi gambar rank-k.
-
-    Returns: (reconstructed_uint8_array, stats_dict)
+    Inti SVD rank-k untuk SATU matriks 2D (satu channel), via power
+    iteration + deflation. Dipakai baik oleh svd_compress() (grayscale)
+    maupun svd_compress_color() (RGB, dipanggil 3x per channel).
     """
-    rng = np.random.default_rng(seed)
-    H, W = gray_matrix.shape
-    A_copy = gray_matrix.copy().astype(np.float64)
+    H, W = matrix.shape
+    A_copy = matrix.copy().astype(np.float64)
 
     us, ss, vs = [], [], []
     for _ in range(k):
@@ -250,6 +248,21 @@ def svd_compress(gray_matrix: np.ndarray, k: int, iters: int = 15, seed: int | N
     for i in range(k):
         recon += ss[i] * np.outer(us[i], vs[i])
 
+    return recon
+
+
+def svd_compress(gray_matrix: np.ndarray, k: int, iters: int = 15, seed: int | None = None):
+    """
+    Port 1:1 dari runSVD() di JS (mode grayscale): hitung k singular
+    value/vector terbesar via power iteration + deflation, lalu
+    rekonstruksi gambar rank-k dari SATU matriks (grayscale).
+
+    Returns: (reconstructed_uint8_array (H,W), stats_dict)
+    """
+    rng = np.random.default_rng(seed)
+    H, W = gray_matrix.shape
+
+    recon = _svd_reconstruct_single_channel(gray_matrix, k, iters, rng)
     recon_clamped = np.clip(np.round(recon), 0, 255).astype(np.uint8)
 
     orig_vals = H * W
@@ -263,5 +276,52 @@ def svd_compress(gray_matrix: np.ndarray, k: int, iters: int = 15, seed: int | N
         "orig_vals": orig_vals,
         "saved_pct": saved_pct,
         "k": k,
+        "mode": "grayscale",
+    }
+    return recon_clamped, stats
+
+
+def svd_compress_color(rgb_array: np.ndarray, k: int, iters: int = 15, seed: int | None = None):
+    """
+    Mode WARNA: jalankan SVD rank-k secara TERPISAH untuk tiap channel
+    (R, G, B), masing-masing diperlakukan sebagai matriks 2D sendiri,
+    lalu hasil ketiganya digabung kembali jadi gambar RGB.
+
+    Konsekuensi: karena ada 3 channel, data yang disimpan jadi
+    3 * k*(H+W+1) angka (bukan cuma 1x seperti mode grayscale), sehingga
+    efisiensi kompresi untuk k yang sama akan lebih rendah dibanding
+    mode grayscale -- ini wajar karena kita memang menyimpan informasi
+    warna, bukan cuma kecerahan.
+
+    Returns: (reconstructed_uint8_array (H,W,3), stats_dict)
+    """
+    H, W, _ = rgb_array.shape
+    recon_channels = []
+
+    for c in range(3):
+        # Seed per-channel dibuat berbeda (tapi tetap reproducible dari
+        # seed utama) supaya inisialisasi vektor power iteration tidak
+        # identik antar channel.
+        channel_seed = None if seed is None else seed + c
+        rng = np.random.default_rng(channel_seed)
+        channel_matrix = rgb_array[:, :, c]
+        recon_c = _svd_reconstruct_single_channel(channel_matrix, k, iters, rng)
+        recon_channels.append(recon_c)
+
+    recon_rgb = np.stack(recon_channels, axis=-1)
+    recon_clamped = np.clip(np.round(recon_rgb), 0, 255).astype(np.uint8)
+
+    orig_vals = H * W * 3
+    comp_vals = 3 * k * (H + W + 1)
+    saved_pct = max(0.0, (100 - comp_vals / orig_vals * 100))
+
+    stats = {
+        "width": W,
+        "height": H,
+        "comp_vals": comp_vals,
+        "orig_vals": orig_vals,
+        "saved_pct": saved_pct,
+        "k": k,
+        "mode": "color",
     }
     return recon_clamped, stats
